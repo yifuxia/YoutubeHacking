@@ -120,4 +120,4 @@ if __name__ == '__main__':
     app = socketio.Middleware(sio, app)
 
     # deploy as an eventlet WSGI server
-    eventlet.wsgi.server(eventlet.listen(('', 3001)), app)
+    eventlet.wsgi.server(eventlet.listen(('', 3008)), app)
