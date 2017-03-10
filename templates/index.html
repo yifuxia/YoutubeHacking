@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+</head>
+<link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro|Titillium+Web" rel="stylesheet">
+<style type="text/css">
+	body{
+      font-family: 'Source Sans Pro', sans-serif;
+    }
+    body p{
+    	color:lightyellow;
+    }
+	.axis{
+		shape-rendering: crispEdges;
+		fill: none;
+      stroke:lightyellow;
+      stroke-width: 1px 
+	}
+	.overlay {
+  fill: none;
+  pointer-events: all;
+}
+
+.tick text{
+	fill: lightyellow;
+}
+
+a {
+    color: lightyellow;
+}
+
+.focus circle {
+  fill: none;
+  stroke: lightyellow;
+}
+input[type="text"] {
+  appearance: none;
+  font-size: 1rem;
+  box-shadow: none;
+  border-radius: none;
+  padding: 10px;
+  border: none;
+  border-bottom: solid 2px #c9c9c9;
+  transition: border 0.3s;
+  color: lightyellow;
+}
+input[type="text"]:focus {
+  outline: none;
+  border-bottom: solid 3px #969696;
+}
+</style>
+<body style="background: black">
+
+<div style="width:38vw;display:inline-block;position:fixed;height:100vh;text-align: center">
+	<select id="category_select" style="width:20vw;margin-top:5vh;margin-bottom:10vh;font-size: 1.2rem">
+	  <option value="1"  selected="selected">Film & Animation</option>
+	  <option value="2">Cars & Vehicles</option>
+	  <option value="10">Music</option>
+	  <option value="15">Pets & Animals</option>
+	  <option value="17">Sports</option>
+	  <option value="19">Travel & Events</option>
+	  <option value="20">Gaming</option>
+	  <option value="22">People & Blogs</option>
+	  <option value="23">Comedy</option>
+	  <option value="24">Entertainment</option>
+	  <option value="25">News & Politics</option>
+	  <option value="26">How-to & Style</option>
+	  <option value="27">Education</option>
+	  <option value="28">Science & Technology</option>
+	  <option value="29">Non-profits & Activism</option>
+	</select>
+	<div style="text-align: center">
+			<form>
+			  <input type="text" id="searchBar" style="background: rgba(0,0,0,0)" placeholder="Type to search videos..."><br>
+			</form>
+			<p id="search_result_num">	
+			</p>
+			<div style="height:40vh;width:35vw;overflow-y:scroll;">
+				<ul id="video_list">
+				</ul>
+			</div>	
+	</div>
+</div>
+<div style="width:60vw;display:inline-block;vertical-align:top;margin-left: 38vw">
+	<div>
+		<div style="width:60vw;text-align: center">
+			<div style="width:20vw;text-align: center;display:inline-block;vertical-align: top">
+				<p>Top frequent words in title</p>
+				<svg id="word_freq_graph" style="display: inline-block;"></svg>
+			</div>
+			<div style="width:20vw;text-align: center;display:inline-block;vertical-align: top;margin-left: 5vw">
+				<p>Top view-capturing words in title</p>
+				<svg id="word_score_graph" style="display: inline-block;"></svg>
+			</div>	
+		</div>
+		<hr>
+		<p id="duration_indicator">Video duration</p>
+		<div>
+			<br>
+			<svg id="duration_distribution" style="display:inline-block;"></svg>
+			<svg id="duration_graph" style="display: none"></svg>
+		</div>
+		<hr>
+		<p id="num_words_in_title_indicator">Number of words in titles</p>
+		<div>
+			<br>
+			<svg id="num_words_distribution" style="display:inline-block;"></svg>
+			<svg id="num_words_title_graph" style="display: none;"></svg>
+		</div>
+		<hr>
+		<p id="week_indicator">Published day of week</p>
+		<div>
+			<svg id="week_distribution" style="display:inline-block;"></svg>
+			<svg id="week_graph" style="display: none;"></svg>
+		</div>
+
+		
+	</div>
+	
+</div>
+
+</body>
+<script
+  src="https://code.jquery.com/jquery-3.1.1.min.js"
+  integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8="
+  crossorigin="anonymous"></script>
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script src="d3.layout.cloud.js"></script>
+
+<script>
+var socket = io('http://localhost:3001');
+
+/*
+$('#searchBar').change(function(){
+	var val = $('#searchBar').val()
+	if (val){
+		socket.emit('search_videos',{'search_word':val,'category':$('#category_select').val()})
+	}
+});
+*/
+
+var timeoutID = null;
+
+function findMember(str) {
+  $('li').remove();
+  $('#search_result_num').text('searching.......')
+  if (str){
+		socket.emit('search_videos',{'search_word':str,'category':$('#category_select').val()})
+	}
+}
+
+$('#searchBar').keyup(function(e) {
+  clearTimeout(timeoutID);
+  timeoutID = setTimeout(findMember.bind(undefined, e.target.value), 500);
+});
+
+$('#category_select').change(function(){
+	var val = $('#category_select').val()
+	socket.emit('request_data',{'data':val})
+}).change();
+
+//Helper function:
+// Find max index in array
+function indexOfMax(arr) {
+    if (arr.length === 0) {
+        return -1;
+    }
+
+    var max = arr[0];
+    var maxIndex = 0;
+
+    for (var i = 1; i < arr.length; i++) {
+        if (arr[i] > max) {
+            maxIndex = i;
+            max = arr[i];
+        }
+    }
+
+    return maxIndex;
+}
+
+/*
+
+Search Bar Section
+
+*/
+
+(function(){
+	socket.on('return_search_res',function(data){
+		$('#search_result_num').text(data['title'].length + ' videos found!')
+		for (i in data['title']){
+			$('#video_list').append('<li><a href='+'\"https://www.youtube.com/watch?v='+data['video_id'][i]+"\"" +'target=\"_blank\">'+data['title'][i]+'</a></li>')
+		}
+	})
+})();
+
+
+/*
+
+
+Percentage Ring
+
+
+*/
+(function(){
+	
+	var svg = d3.select("body").select("#percentage_ring")
+    .attr("viewBox", '0 0 600 600')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','10vw');
+
+    var outerRadius=300;
+    var innerRadius=200;
+
+
+	var g = svg.append("g").attr("transform", "translate(" + outerRadius + "," + outerRadius + ")");
+
+	var arc = d3.svg.arc()              
+        .outerRadius(outerRadius)
+        .innerRadius(innerRadius);
+
+    var pie = d3.layout.pie()
+    .sort(null);
+
+	var drawing = function(data){
+		var d = [data['videos'],data['total']-data['videos']]
+		var ring = g.selectAll(".arc")
+      		.data(pie(d))
+    		.enter().append("g")
+      		.attr("class", "arc");
+
+	      ring.append("path")
+	      .attr("d", arc)
+	      .style("fill", function(d,i){return i==1? 'black': 'lightyellow'});
+
+	}
+
+
+	socket.on('percentage_data', function(data){
+	
+
+		drawing(data)
+
+
+	});
+
+})();
+
+
+
+/*
+
+Duration Section
+
+*/
+
+(function(){
+	
+	var svg = d3.select("body").select("#duration_graph")
+    .attr("viewBox", '0 0 1200 600')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([500, 50]);
+
+	var line = d3.svg.line()
+	    .x(function(d) { return x(d['duration']); })
+	    .y(function(d) { return y(d['views']); });
+
+	var drawing_line = function(data){
+
+	function mousemove() {
+		    var x0 = x.invert(d3.mouse(this)[0]);
+		    var bisect_duration = d3.bisector(function(d){ return d['duration']}).right;
+		    var i = bisect_duration(data, x0)
+		    var d = data[i];
+		    focus.attr("transform", "translate(" + x(d['duration']) + "," + y(d['views']) + ")");
+		    focus.select("text").text('views: ' + parseInt(Math.exp(d['views'])));
+		    focus.select("line")
+		    .attr('x1', 0)
+		    .attr('y1', 0)
+		    .attr('x2',0)
+		    .attr('y2',390-y(d['views']))
+		    //$("#duration_indicator").text(Math.exp(d['views']))
+		    var m = parseInt(d['duration'] / 60)
+		    var s = d['duration']%60
+		    $("#duration_indicator").text('Video duration: '+m+' min  '+ s +' s')
+		  }
+
+
+		  x.domain(d3.extent(data, function(d) { return d['duration']; }));
+		  y.domain(d3.extent(data, function(d) { return d['views']; }));
+		  
+		  
+		 
+
+	  		var focus = g.append("g")
+			      .attr("class", "focus")
+			      .style("display", "none");
+
+			  focus.append("circle")
+			      .attr("r", 10)
+			      .attr("stroke-width", 2)
+			      .style('stroke','lightyellow');
+
+			  focus.append("line")
+			  .attr('stroke-dasharray','5,5')
+			  .attr('stroke-width',2)
+			  .style('stroke','lightyellow')
+
+			  focus.append("text")
+			      .attr("x", 20)
+			      .attr('fill','lightyellow')
+			      .attr("dy", ".35em")
+			      .attr('font-size','20');
+
+			  g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1000)
+			      .attr("height", 500)
+			      //.style('fill','rgba(255,255,255,0)')
+			      .on("mouseover", function() { focus.style("display", null); })
+			      .on("mouseout", function() { focus.style("display", "none"); })
+			      .on("mousemove", mousemove);
+
+
+			 g.append("text")
+            .attr("text-anchor", "middle")  // this makes it easy to centre the text as the transform is applied to the anchor
+            .attr("transform", "translate(500,440)")  // centre below axis
+            .text("Duration (in seconds)");
+			 
+			 g.append("text")
+			 .attr('fill','lightyellow')
+            .attr("text-anchor", "middle")  // this makes it easy to centre the text as the transform is applied to the anchor
+            .attr('transform','rotate(-90) translate(-200,-60)') // centre below axis
+            .text("Views");
+
+
+		  g.append("g")
+		  	 .attr("class", "y axis")
+		      //.call(d3.svg.axis().scale(y).orient("left"))
+		    .append("text")
+		      .attr("fill", "#000")
+		      .attr("transform", "translate(50,0)")
+		      .attr("y", 6)
+		      .attr("dy", "2em")
+
+	      g.append("g")
+		    .attr("class", "x axis")
+		      .attr("transform", "translate(0," + 390 + ")")
+		      
+
+		  var path = g.append("path")
+		      .attr("fill", "none")
+		      .attr("class", "line")
+		      .attr("stroke", "lightyellow")
+		      .attr("stroke-linejoin", "round")
+		      .attr("stroke-linecap", "round")
+		      .attr("stroke-width", 2);
+
+		  var svg = d3.select("body").select("#duration_graph").transition()
+		svg.select(".line")   // change the line
+            .duration(750)
+            .attr("d", line(data));
+        svg.select(".x.axis") // change the x axis
+            .duration(750)
+            .call(d3.svg.axis().scale(x).orient("bottom"));
+        svg.select(".y.axis") // change the y axis
+            .duration(750)
+            .call(d3.svg.axis().scale(y).orient("left").ticks(5).tickFormat(function(d){ return parseInt(Math.exp(d))}));
+        g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+	}
+
+
+	socket.on('duration_data', function(data){
+	
+
+		drawing_line(data)
+
+
+	});
+
+})();
+
+
+/*
+
+Duration Distribution Graph
+
+*/
+
+(function(){
+	
+
+
+	var svg = d3.select("body").select("#duration_distribution")
+    .attr("viewBox", '0 0 1200 120')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([100, 0]);
+
+	var line = d3.svg.line()
+	    .x(function(d) { return x(d['duration']); })
+	    .y(function(d) { return y(d['views']); });
+
+	var colorScale = d3.scale.linear()
+			.range(["#0080FF", "#FF3333"])
+
+	
+
+
+	var drawing_hist = function(data){
+
+	
+		function mousemove() {
+		    var x0 = x.invert(d3.mouse(this)[0]);
+		    var bisect_duration = d3.bisector(function(d){ return d['duration']}).right;
+		    var i = bisect_duration(data, x0)
+		    var d = data[i];
+		    var m = parseInt(d['duration'] / 60)
+		    var s = d['duration']%60
+		    $("#duration_indicator").text('Video duration: '+m+' min  '+ s +' s')
+		}
+		  x.domain(d3.extent(data, function(d) { return d['duration']; }));
+		  y.domain(d3.extent(data, function(d) { return d['counts']; }));
+		  
+		  colorScale.domain([d3.min(data, function(d) {return d['views']; }), d3.max(data, function(d) {return d['views']; })])
+
+
+		
+
+		 g.append("g")
+		    .attr("class", "x axis")
+		      .attr("transform", "translate(0," + 100 + ")")
+
+
+			 g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1000)
+			      .attr("height", 200)
+			      .on('click',function(){
+			      	if ($('#duration_graph').css('display') === 'none'){
+			      		$('#duration_graph').css({'display':'inline-block'})
+			      	}else{
+			      		$('#duration_graph').css({'display':'none'})
+			      	}
+			      	
+			      })
+			      .on("mousemove", mousemove);
+
+
+
+		  var svg = d3.select("body").select("#duration_distribution").transition()
+		var lines = g.selectAll(".line") 
+			.data(data)
+
+			
+			lines.exit().transition().duration(300).remove()
+
+			lines.enter().append('line')
+			.attr("fill", "none")
+		      .attr("class", "line")
+		      .attr("stroke-linejoin", "round")
+		      .attr("stroke-linecap", "round")
+		      .attr("stroke-width", 3)
+		      .on("mouseover",function(d){d3.select(this).transition().duration(0).attr('stroke-width',10)})
+		      .on("mouseout",function(d){d3.select(this).transition().attr('stroke-width',3)})
+
+
+		     lines.transition().duration(750)
+            .attr("x1", function(d){return x(d['duration'])})
+            .attr("y1", 100)
+            .attr("x2", function(d){return x(d['duration'])})
+            .attr("y2", function(d){return y(d['counts'])})
+            .style("stroke", function(d) { return colorScale(d['views']); });
+            
+        svg.select(".x.axis") // change the x axis
+            .duration(750)
+            .call(d3.svg.axis().scale(x).orient("bottom").ticks(5).tickFormat(function(d){
+            	var m = parseInt(d/60);
+            	var s = d%60;
+            	return m+'m'+s+'s'
+            }));
+
+         g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+	}
+
+
+	socket.on('duration_data', function(data){
+		drawing_hist(data)
+	});
+
+})();
+
+
+/*
+
+Day of week graph
+
+*/
+
+(function(){
+	
+	var weekMapping = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+	var svg = d3.select("body").select("#week_graph")
+    .attr("viewBox", '0 0 1200 500')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([400, 50]);
+
+	var line = d3.svg.line()
+	    .x(function(d) { return x(d['published_day_of_week']); })
+	    .y(function(d) { return y(d['views']); });
+
+    
+	socket.on('week_data', function(data){
+
+	function mousemove() {
+	    var x0 = x.invert(d3.mouse(this)[0]);
+	    var bisect_duration = d3.bisector(function(d){ return d['published_day_of_week']}).right;
+	    var i = bisect_duration(data, x0)
+	    var d = data[i];
+	    focus.attr("transform", "translate(" + x(d['published_day_of_week']) + "," + y(d['views']) + ")");
+		focus.select("text").text('views: ' + (parseInt(Math.exp(d['views']))-1));
+	    focus.select("line")
+	    .attr('x1', 0)
+	    .attr('y1', 0)
+	    .attr('x2',0)
+	    .attr('y2',-y(d['views']))
+	    //$("#duration_indicator").text(Math.exp(d['views']))
+	    $("#week_indicator").text('Published on '+weekMapping[d['published_day_of_week']])
+	  }
+
+ 			g.append("text")
+ 			.attr('fill','lightyellow')
+            .attr("text-anchor", "middle")  // this makes it easy to centre the text as the transform is applied to the anchor
+            .attr('transform','rotate(-90) translate(-200,-60)') // centre below axis
+            .text("Views");
+
+	  x.domain(d3.extent(data, function(d) { return d['published_day_of_week']; }));
+		y.domain(d3.extent(data, function(d) { return d['views']; }));
+
+	 g.append("g")
+		  	 .attr("class", "y axis")
+		      .attr("fill", "#000")
+		      .attr("transform", "translate(0,0)")
+
+		var path = g.append("path")
+		      .attr("fill", "none")
+		      .attr("class", "line")
+		      .attr("stroke", "lightyellow")
+		      .attr("stroke-linejoin", "round")
+		      .attr("stroke-linecap", "round")
+		      .attr("stroke-width", 2)
+
+		var focus = g.append("g")
+			      .attr("class", "focus")
+			      .style("display", "none");
+
+			  focus.append("circle")
+			      .attr("r", 10)
+			      .attr("stroke-width", 2)
+			      .style('stroke','lightyellow');
+
+			  focus.append("line")
+			  .attr('stroke-dasharray','5,5')
+			  .attr('stroke-width',2)
+			  .style('stroke','lightyellow')
+
+			  focus.append("text")
+			      .attr("x", 20)
+			      .attr('fill','lightyellow')
+			      .attr("dy", ".35em")
+			      .attr('font-size','20');
+
+			  g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1200)
+			      .attr("height", 500)
+			      //.style('fill','rgba(255,255,255,0)')
+			      .on("mouseover", function() { focus.style("display", null); })
+			      .on("mouseout", function() { focus.style("display", "none"); })
+			      .on("mousemove", mousemove);
+
+
+		var svg = d3.select("body").select("#week_graph").transition()
+		svg.select(".line")   // change the line
+            .duration(750)
+            .attr("d", line(data));
+        svg.select(".y.axis") // change the y axis
+            .duration(750)
+            .call(d3.svg.axis().scale(y).orient("left").ticks(5).tickFormat(function(d){return parseInt(Math.exp(d))}));
+
+        g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+
+	});
+
+})();
+
+
+/*
+
+Day of week Distribution Graph
+
+*/
+
+(function(){
+	
+	var weekMapping = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+
+	var svg = d3.select("body").select("#week_distribution")
+    .attr("viewBox", '0 0 1200 120')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([90, 0]);
+
+
+	var colorScale = d3.scale.linear()
+			.range(["#0080FF", "#FF3333"])
+
+	
+
+
+	var drawing_hist = function(data){
+
+	
+		function mousemove() {
+		    var x0 = x.invert(d3.mouse(this)[0]);
+		    var bisect_duration = d3.bisector(function(d){ return d['published_day_of_week']}).right;
+		    var i = bisect_duration(data, x0)
+		    var d = data[i];
+		    $("#week_indicator").text(function(d){return 'Published on '+d['published_day_of_week']})
+		}
+		  x.domain(d3.extent(data, function(d) { return d['published_day_of_week']; }));
+		  y.domain(d3.extent(data, function(d) { return d['counts']; }));
+		  
+		  colorScale.domain([d3.min(data, function(d) {return d['views']; }), d3.max(data, function(d) {return d['views']; })])
+
+		   g.append("g")
+		    .attr("class", "x axis")
+		      .attr("transform", "translate(0," + 100 + ")")
+
+			 g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1200)
+			      .attr("height", 200)
+			      .on('click',function(){
+			      	if ($('#week_graph').css('display') === 'none'){
+			      		$('#week_graph').css({'display':'inline-block'})
+			      	}else{
+			      		$('#week_graph').css({'display':'none'})
+			      	}
+			      	
+			      })
+			     // .on("mousemove", mousemove);
+			 
+			
+
+		  var svg = d3.select("body").select("#week_distribution").transition()
+		var lines = g.selectAll(".line") 
+			.data(data)
+
+			
+			lines.exit().transition().duration(300).remove()
+
+			lines.enter().append('line')
+			.attr("fill", "none")
+		      .attr("class", "line")
+		      //.attr("stroke-linejoin", "round")
+		      //.attr("stroke-linecap", "round")
+		      .attr("stroke-width", 80)
+		      .on("mouseover",function(d){d3.select(this).transition().duration(0).attr('stroke-width',100)})
+		      .on("mouseout",function(d){d3.select(this).transition().attr('stroke-width',80)})
+
+
+		     lines.transition().duration(750)
+            .attr("x1", function(d){return x(d['published_day_of_week'])})
+            .attr("y1", 100)
+            .attr("x2", function(d){return x(d['published_day_of_week'])})
+            .attr("y2", function(d){return y(d['counts'])})
+            .style("stroke", function(d) { return colorScale(d['views']); });
+            
+        svg.select(".x.axis") // change the x axis
+            .duration(750)
+            .call(d3.svg.axis().scale(x).orient("bottom").ticks(7).tickFormat(function(d){
+		      	if (Number.isInteger(d)) {
+		      		return weekMapping[d]
+		      	}
+		      }))
+         g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+	}
+
+
+	socket.on('week_data', function(data){
+		drawing_hist(data)
+	});
+
+})();
+
+
+/*
+
+#words in title Section
+
+*/
+
+(function(){
+	
+	var svg = d3.select("body").select("#num_words_title_graph")
+    .attr("viewBox", '0 0 1200 500')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([400, 50]);
+
+	var line = d3.svg.line()
+	    .x(function(d) { return x(d['#words_in_title']); })
+	    .y(function(d) { return y(d['views']); });
+
+    
+	socket.on('#words_in_title_data', function(data){
+
+	function mousemove() {
+	    var x0 = x.invert(d3.mouse(this)[0]);
+	    var bisect_duration = d3.bisector(function(d){ return d['#words_in_title']}).right;
+	    var i = bisect_duration(data, x0)
+	    var d = data[i];
+	    focus.attr("transform", "translate(" + x(d['#words_in_title']) + "," + y(d['views']) + ")");
+		focus.select("text").text('views: ' + (parseInt(Math.exp(d['views']))-1));
+	    focus.select("line")
+	    .attr('x1', 0)
+	    .attr('y1', 0)
+	    .attr('x2',0)
+	    .attr('y2',-y(d['views']))
+	    //$("#duration_indicator").text(Math.exp(d['views']))
+	    $("#num_words_in_title_indicator").text(d['#words_in_title']+' words in the title')
+	  }
+
+ 			g.append("text")
+ 			.attr('fill','lightyellow')
+            .attr("text-anchor", "middle")  // this makes it easy to centre the text as the transform is applied to the anchor
+            .attr('transform','rotate(-90) translate(-200,-60)') // centre below axis
+            .text("Views");
+
+	  x.domain(d3.extent(data, function(d) { return d['#words_in_title']; }));
+		y.domain(d3.extent(data, function(d) { return d['views']; }));
+
+	 g.append("g")
+		  	 .attr("class", "y axis")
+		      .attr("fill", "#000")
+		      .attr("transform", "translate(0,0)")
+
+		var path = g.append("path")
+		      .attr("fill", "none")
+		      .attr("class", "line")
+		      .attr("stroke", "lightyellow")
+		      .attr("stroke-linejoin", "round")
+		      .attr("stroke-linecap", "round")
+		      .attr("stroke-width", 2)
+
+		var focus = g.append("g")
+			      .attr("class", "focus")
+			      .style("display", "none");
+
+			  focus.append("circle")
+			      .attr("r", 10)
+			      .attr("stroke-width", 2)
+			      .style('stroke','lightyellow');
+
+			  focus.append("line")
+			  .attr('stroke-dasharray','5,5')
+			  .attr('stroke-width',2)
+			  .style('stroke','lightyellow')
+
+			  focus.append("text")
+			      .attr("x", 20)
+			      .attr('fill','lightyellow')
+			      .attr("dy", ".35em")
+			      .attr('font-size','20');
+
+			  g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1200)
+			      .attr("height", 500)
+			      //.style('fill','rgba(255,255,255,0)')
+			      .on("mouseover", function() { focus.style("display", null); })
+			      .on("mouseout", function() { focus.style("display", "none"); })
+			      .on("mousemove", mousemove);
+
+
+		var svg = d3.select("body").select("#num_words_title_graph").transition()
+		svg.select(".line")   // change the line
+            .duration(750)
+            .attr("d", line(data));
+        svg.select(".y.axis") // change the y axis
+            .duration(750)
+            .call(d3.svg.axis().scale(y).orient("left").ticks(5).tickFormat(function(d){return parseInt(Math.exp(d))}));
+
+        g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+
+	});
+
+})();
+
+/*
+
+#words in title Distribution Graph
+
+*/
+
+(function(){
+	
+	var svg = d3.select("body").select("#num_words_distribution")
+    .attr("viewBox", '0 0 1200 120')
+    .attr('preserveAspectRatio',"xMidYMid meet")
+    .attr('width','60vw');
+
+	var g = svg.append("g").attr("transform", "translate(" + 100 + "," + 0 + ")");
+
+	var x = d3.scale.linear()
+	    .rangeRound([0, 900]);
+
+	var y = d3.scale.linear()
+	    .rangeRound([90, 0]);
+
+
+	var colorScale = d3.scale.linear()
+			.range(["#0080FF", "#FF3333"])
+
+	
+
+
+	var drawing_hist = function(data){
+
+	
+		function mousemove() {
+		    var x0 = x.invert(d3.mouse(this)[0]);
+		    var bisect_duration = d3.bisector(function(d){ return d['#words_in_title']}).right;
+		    var i = bisect_duration(data, x0)
+		    var d = data[i];
+		    $("#num_words_in_title_indicator").text(function(d){return d['#words_in_title'] + ' words in the title'})
+		}
+		  x.domain(d3.extent(data, function(d) { return d['#words_in_title']; }));
+		  y.domain(d3.extent(data, function(d) { return d['counts']; }));
+		  
+		  colorScale.domain([d3.min(data, function(d) {return d['views']; }), d3.max(data, function(d) {return d['views']; })])
+
+		   g.append("g")
+		    .attr("class", "x axis")
+		      .attr("transform", "translate(0," + 100 + ")")
+
+
+
+
+			 g.append("rect")
+			      .attr("class", "overlay")
+			      .attr("width", 1200)
+			      .attr("height", 200)
+			      .on('click',function(){
+			      	if ($('#num_words_title_graph').css('display') === 'none'){
+			      		$('#num_words_title_graph').css({'display':'inline-block'})
+			      	}else{
+			      		$('#num_words_title_graph').css({'display':'none'})
+			      	}
+			      	
+			      })
+			     // .on("mousemove", mousemove);
+			 
+			
+
+		  var svg = d3.select("body").select("#num_words_distribution").transition()
+		var lines = g.selectAll(".line") 
+			.data(data)
+
+			
+			lines.exit().transition().duration(300).remove()
+
+			lines.enter().append('line')
+			.attr("fill", "none")
+		      .attr("class", "line")
+		      //.attr("stroke-linejoin", "round")
+		      //.attr("stroke-linecap", "round")
+		      .attr("stroke-width", 10)
+		      .on("mouseover",function(d){d3.select(this).transition().duration(0).attr('stroke-width',12)})
+		      .on("mouseout",function(d){d3.select(this).transition().attr('stroke-width',10)})
+
+
+		     lines.transition().duration(750)
+            .attr("x1", function(d){return x(d['#words_in_title'])})
+            .attr("y1", 100)
+            .attr("x2", function(d){return x(d['#words_in_title'])})
+            .attr("y2", function(d){return y(d['counts'])})
+            .style("stroke", function(d) { return colorScale(d['views']); });
+            
+        svg.select(".x.axis") // change the x axis
+            .duration(750)
+            .call(d3.svg.axis().scale(x).orient("bottom").ticks(20));
+
+        g.selectAll('.tick').selectAll('text').attr('fill','black').attr('stroke','none')
+
+
+	}
+
+
+	socket.on('#words_in_title_data', function(data){
+		drawing_hist(data)
+	});
+
+})();
+
+
+/*
+
+Words Section
+
+*/
+
+
+(function(){
+	/*
+
+
+		Word cloud setup 
+
+
+		*/
+		function wordCloud(selector) {
+
+		    //var fill = d3.scaleOrdinal(d3.schemeCategory20);
+		    var fill = d3.scale.category20b();
+		    //Construct the word cloud's SVG element
+		    var svg = d3.select('body').select(selector)
+		        .attr("viewBox", '0 0 800 600')
+    			.attr('preserveAspectRatio',"xMidYMid meet")
+    			.attr('width','20vw')
+		        .append("g")
+		        .attr("transform", "translate(400,300)");
+
+
+		    //Draw the word cloud
+		    function draw(words) {
+		        var cloud = svg.selectAll("g text")
+		                        .data(words, function(d) { return d.text; })
+
+		        //Entering words
+		        cloud.enter()
+		            .append("text")
+		            .style("font-family", 'Source Code Pro')
+		            .style("fill", function(d, i) { return fill(i); })
+		            .attr("text-anchor", "middle")
+		            .attr('font-size', 1)
+		            .text(function(d) { return d.text; });
+
+		        //Entering and existing words
+		        cloud
+		            .transition()
+		                .duration(600)
+		                .style("font-size", function(d) { return d.size + "px"; })
+		                .attr("transform", function(d) {
+		                    return "translate(" + [d.x, d.y] + ")rotate(" + d.rotate + ")";
+		                })
+		                .style("fill-opacity", 1);
+
+		        //Exiting words
+		        cloud.exit()
+		            .transition()
+		                .duration(200)
+		                .style('fill-opacity', 1e-6)
+		                .attr('font-size', 1)
+		                .remove();
+		    }
+
+
+		    //Use the module pattern to encapsulate the visualisation code. We'll
+		    // expose only the parts that need to be public.
+		    return {
+
+		        //Recompute the word cloud for a new set of words. This method will
+		        // asycnhronously call draw when the layout has been computed.
+		        //The outside world will need to call this function, so make it part
+		        // of the wordCloud return value.
+		        update: function(words) {
+		            d3.layout.cloud().size([800, 600])
+		                .words(words)
+		                .padding(5)
+		                .rotate(function() { return ~~(Math.random() * 2) * 90; })
+		                .fontSize(function(d) { return d.size; })
+		                .on("end", draw)
+		                .start();
+		        }
+		    }
+
+		}
+
+		function showNewWords(vis, wordList) {
+		    vis.update(wordList)
+		}
+	/*
+
+
+		END Word cloud setup 
+
+
+	*/
+	var myWordCloud_freq = wordCloud('#word_freq_graph')
+	var myWordCloud_score = wordCloud('#word_score_graph')
+	socket.on('words_data', function(data){
+		var wordList_freq = []
+		var wordList_score = []
+		var max_count = d3.max(data['freq_words'], function(d){return d['count']})
+		for (i in data['freq_words']){
+			wordList_freq.push({'text': data['freq_words'][i]['word'], 'size':  parseInt((data['freq_words'][i]['count'] / max_count).toFixed(2)*242)})
+		}
+		for (i in data['view_friendly_words']){
+			wordList_score.push({'text': data['view_friendly_words'][i]['word'], 'size': 8*data['view_friendly_words'][i]['score']})
+		}
+		
+		showNewWords(myWordCloud_freq,wordList_freq);
+		showNewWords(myWordCloud_score,wordList_score);
+	})
+
+})();
+
+
+
+
+
+
+</script>
+</html>
